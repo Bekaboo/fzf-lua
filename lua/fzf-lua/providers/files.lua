@@ -1,30 +1,32 @@
+---@diagnostic disable-next-line: deprecated
 local uv = vim.uv or vim.loop
 local core = require "fzf-lua.core"
 local path = require "fzf-lua.path"
 local utils = require "fzf-lua.utils"
-local shell = require "fzf-lua.shell"
 local libuv = require "fzf-lua.libuv"
 local config = require "fzf-lua.config"
 local make_entry = require "fzf-lua.make_entry"
 
 local M = {}
 
-local get_files_cmd = function(opts)
+---@param opts table
+---@return string
+M.get_files_cmd = function(opts)
   if opts.raw_cmd and #opts.raw_cmd > 0 then
     return opts.raw_cmd
   end
   local search_paths = (function()
     -- NOTE: deepcopy to avoid recursive shellescapes with `actions.toggle_ignore`
-    local search_paths = type(opts.search_paths) == "table" and vim.deepcopy(opts.search_paths)
+    local paths = type(opts.search_paths) == "table" and vim.deepcopy(opts.search_paths)
         or type(opts.search_paths) == "string" and { tostring(opts.search_paths) }
     -- Make paths relative, note this will not work well with resuming if changing
     -- the cwd, this is by design for perf reasons as having to deal with full paths
     -- will result in more code routes taken in `make_entry.file`
-    if type(search_paths) == "table" then
-      for i, p in ipairs(search_paths) do
-        search_paths[i] = libuv.shellescape(path.relative_to(path.normalize(p), uv.cwd()))
+    if type(paths) == "table" then
+      for i, p in ipairs(paths) do
+        paths[i] = libuv.shellescape(path.relative_to(path.normalize(p), utils.cwd()))
       end
-      return table.concat(search_paths, " ")
+      return table.concat(paths, " ")
     end
   end)()
   local command = nil
@@ -39,7 +41,7 @@ local get_files_cmd = function(opts)
   elseif vim.fn.executable("rg") == 1 then
     command = string.format("rg %s%s", opts.rg_opts,
       search_paths and string.format(" %s", search_paths) or "")
-  elseif utils.__IS_WINDOWS then
+  elseif utils.__IS_WINDOWS and not os.getenv("CI") then
     command = "dir " .. opts.dir_opts
   else
     command = string.format("find %s %s",
@@ -69,32 +71,36 @@ local get_files_cmd = function(opts)
   return command
 end
 
+---@param opts fzf-lua.config.Files|{}?
+---@return thread?, string?, table?
 M.files = function(opts)
+  ---@type fzf-lua.config.Files
   opts = config.normalize_opts(opts, "files")
   if not opts then return end
   if opts.ignore_current_file then
     local curbuf = vim.api.nvim_buf_get_name(0)
     if #curbuf > 0 then
-      curbuf = path.relative_to(curbuf, opts.cwd or uv.cwd())
+      curbuf = path.relative_to(curbuf, opts.cwd or utils.cwd())
       opts.file_ignore_patterns = opts.file_ignore_patterns or {}
       table.insert(opts.file_ignore_patterns,
         "^" .. utils.lua_regex_escape(curbuf) .. "$")
     end
   end
-  opts.cmd = get_files_cmd(opts)
+  opts.cmd = M.get_files_cmd(opts)
   if utils.__IS_WINDOWS and opts.cmd:match("^dir") and not opts.cwd then
     -- `dir` command returns absolute paths with ^M for EOL
     -- `make_entry.file` will strip the ^M
     -- set `opts.cwd` for relative path display
-    opts.cwd = uv.cwd()
+    opts.cwd = utils.cwd()
   end
-  local contents = core.mt_cmd_wrapper(opts)
   opts = core.set_title_flags(opts, { "cmd" })
-  opts = core.set_header(opts, opts.headers or { "actions", "cwd" })
-  return core.fzf_exec(contents, opts)
+  return core.fzf_exec(opts.cmd, opts)
 end
 
+---@param opts fzf-lua.config.Args|{}?
+---@return thread?, string?, table?
 M.args = function(opts)
+  ---@type fzf-lua.config.Args
   opts = config.normalize_opts(opts, "args")
   if not opts then return end
 
@@ -103,87 +109,51 @@ M.args = function(opts)
     return
   end
 
-  opts.func_async_callback = false
-  opts.__fn_reload = opts.__fn_reload or function(_)
-    return function(cb)
-      local argc = vim.fn.argc()
+  local contents = function(cb)
+    local argc = vim.fn.argc()
 
-      -- use coroutine & vim.schedule to avoid
-      -- E5560: vimL function must not be called in a lua loop callback
-      coroutine.wrap(function()
-        local co = coroutine.running()
+    -- use coroutine & vim.schedule to avoid
+    -- E5560: vimL function must not be called in a lua loop callback
+    coroutine.wrap(function()
+      local co = coroutine.running()
 
-        -- local start = os.time(); for _ = 1,10000,1 do
-        for i = 0, argc - 1 do
-          vim.schedule(function()
-            local s = vim.fn.argv(i)
-            local st = uv.fs_stat(s)
-            if opts.files_only == false or st and st.type == "file" then
-              s = make_entry.file(s, opts)
-              cb(s, function()
-                coroutine.resume(co)
-              end)
-            else
+      -- local start = os.time(); for _ = 1,10000,1 do
+      for i = 0, argc - 1 do
+        vim.schedule(function()
+          local s = vim.fn.argv(i)
+          ---@cast s string
+          local st = uv.fs_stat(s)
+          if opts.files_only == false or st and st.type == "file" then
+            s = assert(make_entry.file(s, opts))
+            cb(s, function()
               coroutine.resume(co)
-            end
-          end)
-          coroutine.yield()
-        end
-        -- end; print("took", os.time()-start, "seconds.")
+            end)
+          else
+            coroutine.resume(co)
+          end
+        end)
+        coroutine.yield()
+      end
+      -- end; print("took", os.time()-start, "seconds.")
 
-        -- done
-        cb(nil)
-      end)()
-    end
+      -- done
+      cb(nil)
+    end)()
   end
 
-  -- build the "reload" cmd and remove '-- {+}' from the initial cmd
-  local reload, id = shell.reload_action_cmd(opts, "{+}")
-  local contents = reload:gsub("%-%-%s+{%+}$", "")
-  opts.__reload_cmd = reload
-
-  opts._fn_pre_fzf = function()
-    shell.set_protected(id)
-  end
-
-  opts = core.set_header(opts, opts.headers or { "actions", "cwd" })
   return core.fzf_exec(contents, opts)
 end
 
+---@param opts fzf-lua.config.Zoxide|{}?
+---@return thread?, string?, table?
 M.zoxide = function(opts)
+  ---@type fzf-lua.config.Zoxide
   opts = config.normalize_opts(opts, "zoxide")
   if not opts then return end
 
   if vim.fn.executable("zoxide") ~= 1 then
     utils.warn("Install zoxide to use this picker.")
     return
-  end
-
-  -- we always require processing
-  opts.requires_processing = true
-
-  local contents
-  if opts.multiprocess then
-    opts.__mt_transform = [[return require("fzf-lua.make_entry").zoxide]]
-    contents = core.mt_cmd_wrapper(opts)
-  else
-    opts.__fn_transform = opts.__fn_transform or
-        function(x)
-          return make_entry.zoxide(x, opts)
-        end
-
-    opts.__fn_reload = function(_)
-      return opts.cmd
-    end
-
-    -- build the "reload" cmd and remove '-- {+}' from the initial cmd
-    local reload, id = shell.reload_action_cmd(opts, "{+}")
-    contents = reload:gsub("%-%-%s+{%+}$", "")
-    opts.__reload_cmd = reload
-
-    opts._fn_pre_fzf = function()
-      shell.set_protected(id)
-    end
   end
 
   if opts.header == nil then
@@ -199,7 +169,24 @@ M.zoxide = function(opts)
         or "ls -la {2}"
   end)()
 
-  return core.fzf_exec(contents, opts)
+  return core.fzf_exec(opts.cmd, opts)
+end
+
+---VCS-aware file picker: uses jj_files in jj repos, git_files in git repos,
+---falls back to the regular files picker otherwise.
+---@param opts table|{}?
+---@return thread?, string?, table?
+M.vcs_files = function(opts)
+  opts = opts or {}
+  if path.is_jj_repo(opts, true) then
+    opts.winopts = vim.tbl_deep_extend("keep", opts.winopts or {}, { title = " VCS Files (jj) " })
+    return require("fzf-lua.providers.jj").files(opts)
+  elseif path.is_git_repo(opts, true) then
+    opts.winopts = vim.tbl_deep_extend("keep", opts.winopts or {}, { title = " VCS Files (git) " })
+    return require("fzf-lua.providers.git").files(opts)
+  else
+    return M.files(opts)
+  end
 end
 
 return M

@@ -26,7 +26,7 @@ screenshots:
 
 .PHONY: clean-screenshots
 clean-screenshots:
-	rm -rf tests/screenshots/* 
+	rm -rf tests/screenshots/*
 	make test
 
 #
@@ -38,9 +38,33 @@ clean-screenshots:
 deps:
 	make clean
 	@mkdir -p deps
-	git clone --depth=1 --single-branch https://github.com/echasnovski/mini.nvim deps/mini.nvim
-	git clone --depth=1 --single-branch https://github.com/nvim-tree/nvim-web-devicons \
-		deps/nvim-web-devicons
+	make deps/fzf-lua
+	git clone --depth=1 --single-branch https://github.com/nvim-mini/mini.nvim deps/mini.nvim
+	git clone --depth=1 --single-branch https://github.com/nvim-tree/nvim-web-devicons deps/nvim-web-devicons
+	git clone --depth=1 --single-branch https://github.com/hrsh7th/nvim-cmp deps/nvim-cmp
+	git clone --depth=1 --single-branch https://github.com/mfussenegger/nvim-dap.git deps/nvim-dap
+
+
+# Target to clone the repository and checkout the specific SHA
+SHA=abe5ecafebb4e24feb162384d5f492431036e791
+.PHONY: deps/fzf-lua
+deps/fzf-lua:
+	@mkdir -p deps
+	git clone .git $@
+	(cd $@ && git checkout $(SHA))
+
+.PHONY: lint
+lint:
+	VIMRUNTIME="$$(nvim --clean --headless +'echo $$VIMRUNTIME' +q 2>&1)" lua-language-server --configpath=../.luarc.jsonc --check=.
+
+.PHONY: emmylua-check
+emmylua-check:
+	VIMRUNTIME="$$(nvim --clean --headless +'echo $$VIMRUNTIME' +q 2>&1)" \
+		emmylua_check . \
+			--ignore 'deps/**/*'
+
+gen:
+	nvim --clean -l lua/fzf-lua/init.lua
 
 # clean up
 .PHONY: clean

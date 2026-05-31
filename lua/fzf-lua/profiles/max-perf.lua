@@ -1,5 +1,5 @@
 return {
-  { "default-title" }, -- base profile
+  { "default" }, -- base profile
   desc = "fzf-native with no git|files icons",
   winopts = { preview = { default = "bat" }, treesitter = false },
   manpages = { previewer = "man_native" },
@@ -11,7 +11,8 @@ return {
   files = { fzf_opts = { ["--ansi"] = false } },
   grep = {
     fzf_opts  = { ["--ansi"] = false },
-    rg_glob   = false, -- will trigger `opts.requires_processing`
+    -- rg_glob=true is also very fast now no matter mt/st (when disable fn_transform,fn_postprocess)
+    rg_glob   = false,
     grep_opts = require("fzf-lua.utils").is_darwin()
         and "--color=never --binary-files=without-match --line-number --recursive --extended-regexp -e"
         or "--color=never --binary-files=without-match --line-number --recursive --perl-regexp -e",

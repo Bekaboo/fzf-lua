@@ -8,19 +8,21 @@
 -- the terms of the MIT license. See LICENSE for details.
 --
 
-
+---@class fzf-lua.Object
 local Object = {}
 Object.__index = Object
 
 
 ---@diagnostic disable-next-line: unused-vararg
 function Object:new(...)
+  local _ = self
 end
 
 function Object:extend()
   local cls = {}
   for k, v in pairs(self) do
     if k:find("__") == 1 then
+      ---@diagnostic disable-next-line: assign-type-mismatch
       cls[k] = v
     end
   end
@@ -52,7 +54,7 @@ function Object:is(T)
 end
 
 function Object:__tostring()
-  return "Object"
+  return string.format("Object %p", self)
 end
 
 function Object:__call(...)

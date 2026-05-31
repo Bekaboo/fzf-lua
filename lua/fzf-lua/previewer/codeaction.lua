@@ -1,3 +1,4 @@
+---@diagnostic disable: param-type-mismatch
 local utils = require "fzf-lua.utils"
 local shell = require "fzf-lua.shell"
 local native = require("fzf-lua.previewer.fzf")
@@ -30,13 +31,16 @@ local function diff_text_edits(text_edits, bufnr, offset_encoding, diff_opts)
   local orig_lines = get_lines(bufnr)
   local tmpbuf = vim.api.nvim_create_buf(false, true)
   vim.api.nvim_buf_set_lines(tmpbuf, 0, -1, false, orig_lines)
-  vim.lsp.util.apply_text_edits(text_edits, tmpbuf, offset_encoding)
+  -- deepcopy is necessary due to the apply_text_edits's logic to change the passed edits.
+  vim.lsp.util.apply_text_edits(utils.deepcopy(text_edits), tmpbuf, offset_encoding)
   local new_lines = get_lines(tmpbuf)
   vim.api.nvim_buf_delete(tmpbuf, { force = true })
-  local diff = vim.diff(
+  ---@diagnostic disable-next-line: deprecated
+  local diff = (vim.diff or vim.text.diff)(
     table.concat(orig_lines, eol) .. eol,
     table.concat(new_lines, eol) .. eol,
     diff_opts)
+  ---@cast diff string
   -- Windows: some LSPs use "\n" for EOL (e.g clangd)
   -- remove both "\n" and "\r\n" (#1172)
   return utils.strsplit(vim.trim(diff), "\r?\n")
@@ -121,15 +125,19 @@ local function diff_workspace_edit(workspace_edit, offset_encoding, diff_opts)
   return diff
 end
 
+---@param err? { code: integer, message: string }?
+---@param tuple? [integer, lsp.CodeAction]
+---@param diff_opts vim.text.diff.Opts
+---@return string[]
 local function diff_tuple(err, tuple, diff_opts)
   if err then
     return {
       string.format('"codeAction/resolve" failed with error %d: %s', err.code, err.message)
     }
-  end
+  end ---@cast tuple [integer, lsp.CodeAction]
   local action = tuple[2]
   if action.edit then
-    local client = vim.lsp.get_client_by_id(tuple[1])
+    local client = assert(utils.lsp_get_clients({ id = tuple[1] })[1])
     return diff_workspace_edit(action.edit, client.offset_encoding, diff_opts)
   else
     local command = type(action.command) == "table" and action.command or action
@@ -144,6 +152,10 @@ local function diff_tuple(err, tuple, diff_opts)
 end
 
 -- https://github.com/neovim/neovim/blob/v0.9.4/runtime/lua/vim/lsp/buf.lua#L666
+---@param self fzf-lua.previewer.CodeActionBuiltin
+---@param idx integer
+---@param callback? function
+---@return string[]
 local function preview_action_tuple(self, idx, callback)
   local tuple = self.opts._items[idx]
   -- neovim changed the ui.select params with 0.10.0 (#947)
@@ -155,23 +167,24 @@ local function preview_action_tuple(self, idx, callback)
   -- the error (we already alerted the user about it in `handle_resolved_response`)
   -- and display the default "unsupported" message from the original action
   if self._resolved_actions[idx] then
-    local resolved = self._resolved_actions[idx]
+    local resolved = assert(self._resolved_actions[idx])
     return diff_tuple(nil, not resolved.err and resolved.tuple or tuple, self.diff_opts)
   end
   -- Not found in cache, check if the client supports code action resolving
   local client_id = tuple[1]
-  local client = assert(vim.lsp.get_client_by_id(client_id))
+  local client = assert(utils.lsp_get_clients({ id = client_id })[1])
   local action = tuple[2]
   local supports_resolve = utils.__HAS_NVIM_010
       -- runtime/lua/lsp/buf.lua:on_user_choice
       and (function()
         ---@var choice {action: lsp.Command|lsp.CodeAction, ctx: lsp.HandlerContext}
-        local ms = require("vim.lsp.protocol").Methods
+        ---@diagnostic disable-next-line: deprecated
+        local ms = vim.lsp.protocol.Methods or require("vim.lsp.protocol").Methods
         local choice = self.opts._items[idx]
         local bufnr = assert(choice.ctx.bufnr, "Must have buffer number")
         local reg = client.dynamic_capabilities:get(ms.textDocument_codeAction, { bufnr = bufnr })
         return utils.tbl_get(reg or {}, "registerOptions", "resolveProvider")
-            or client.supports_method(ms.codeAction_resolve)
+            or client:supports_method(ms.codeAction_resolve)
       end)()
       -- prior to nvim 0.10 we could check `client.server_capabilities`
       or utils.tbl_get(client.server_capabilities, "codeActionProvider", "resolveProvider")
@@ -202,13 +215,13 @@ local function preview_action_tuple(self, idx, callback)
       return resolved.tuple
     end
     if callback then
-      client.request("codeAction/resolve", action, function(err, resolved_action)
+      client:request("codeAction/resolve", action, function(err, resolved_action)
         local resolved_tuple = handle_resolved_response(err, resolved_action)
         callback(nil, not err and resolved_tuple or tuple)
       end)
       return { string.format("Resolving action (%s)...", action.kind) }
     else
-      local res = client.request_sync("codeAction/resolve", action)
+      local res = client:request_sync("codeAction/resolve", action)
       local err, resolved_action = res and res.err, res and res.result
       local resolved_tuple = handle_resolved_response(err, resolved_action)
       return diff_tuple(nil, not err and resolved_tuple or tuple, self.diff_opts)
@@ -218,7 +231,9 @@ local function preview_action_tuple(self, idx, callback)
   end
 end
 
-
+---@class fzf-lua.previewer.CodeActionBuiltin: fzf-lua.previewer.Builtin,{}
+---@field super fzf-lua.previewer.Builtin
+---@field diff_opts vim.text.diff.Opts
 M.builtin = builtin.base:extend()
 M.builtin.preview_action_tuple = preview_action_tuple
 
@@ -263,19 +278,25 @@ function M.builtin:populate_preview_buf(entry_str)
   self.win:update_preview_scrollbar()
 end
 
+---@class fzf-lua.previewer.CodeActionNative: fzf-lua.previewer.Fzf,{}
+---@field super fzf-lua.previewer.Fzf
 M.native = native.base:extend()
 M.native.preview_action_tuple = preview_action_tuple
 
-function M.native:new(o, opts, fzf_win)
+---@param o fzf-lua.config.CodeActionPreviewer
+---@param opts fzf-lua.config.LspCodeActions
+---@return fzf-lua.previewer.CodeActionNative
+function M.native:new(o, opts)
   assert(opts._ui_select and opts._ui_select.kind == "codeaction")
-  M.native.super.new(self, o, opts, fzf_win)
+  M.native.super.new(self, o, opts)
   setmetatable(self, M.native)
-  self.pager = opts.preview_pager == nil and o.pager or opts.preview_pager
-  if type(self.pager) == "function" then
-    self.pager = self.pager()
-  end
+  local pager = opts.preview_pager == nil and o.pager or opts.preview_pager
+  if type(pager) == "function" then pager = pager() end
+  local cmd = pager and pager:match("[^%s]+") or nil
+  if cmd and vim.fn.executable(cmd) == 1 then self.pager = pager end
   self.diff_opts = o.diff_opts
   self._resolved_actions = {}
+  ---@diagnostic disable-next-line: undefined-field
   for i, _ in ipairs(self.opts._items) do
     self._resolved_actions[i] = false
   end
@@ -284,13 +305,14 @@ end
 
 function M.native:cmdline(o)
   o = o or {}
-  local act = shell.raw_action(function(entries, _, _)
-    local idx = tonumber(entries[1]:match("^%s*%d+%."))
-    assert(type(idx) == "number")
+  local act = shell.stringify_data(function(entries, _, _)
+    if not entries[1] then return shell.nop() end
+    local idx = utils.tointeger(entries[1]:match("^%s*%d+%."))
+    assert(idx)
     local lines = self:preview_action_tuple(idx)
     return table.concat(lines, "\r\n")
-  end, "{}", self.opts.debug)
-  if self.pager and #self.pager > 0 and vim.fn.executable(self.pager:match("[^%s]+")) == 1 then
+  end, self.opts, "{}")
+  if self.pager then
     act = act .. " | " .. utils._if_win_normalize_vars(self.pager)
   end
   return act

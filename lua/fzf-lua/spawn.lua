@@ -1,16 +1,7 @@
+---@diagnostic disable-next-line: deprecated
 -- This file should only be loaded from the headless instance
+local uv = vim.uv or vim.loop
 assert(#vim.api.nvim_list_uis() == 0)
-
--- When running CI tests there's a bug on Windows which adds a space after the runtime
--- path, this will subsequently cause `vim.filetype.match` to fail  when it attempts to
---`require("vim.filetype.detect")` which will fail our custom `path.ft_match`. This will
--- fail mini.icons UI tests as any icon that requires the use of `vim.filetype.match`
--- will return a default icon
-local VIMRUNTIME = os.getenv("VIMRUNTIME")
-if VIMRUNTIME and VIMRUNTIME:match("%s$") then
-  vim.opt.runtimepath:prepend(vim.trim(VIMRUNTIME))
-  -- package.path = ("%s/lua/?.lua;"):format(vim.trim(VIMRUNTIME)) .. package.path
-end
 
 -- path to this file
 local __FILE__ = debug.getinfo(1, "S").source:gsub("^@", "")
@@ -42,5 +33,18 @@ end
 
 -- global var indicating a headless instance
 _G._fzf_lua_is_headless = true
-
-return { spawn_stdio = require("fzf-lua.libuv").spawn_stdio }
+---@type fzf-lua.SpawnStdioOpts
+local opts = require("fzf-lua.libuv").deserialize(assert(_G.arg[1]))
+local _, pid = require("fzf-lua.libuv").spawn_stdio(opts)
+-- while vim.uv.run() do end -- os.exit in spawn_stdio
+if pid then
+  while uv.os_getpriority(pid) do
+    vim.wait(100, function() return uv.os_getpriority(pid) == nil end)
+  end
+else
+  -- No child process was spawned (content was table/function, not a string command).
+  -- `on_finish` has already scheduled `fn_postprocess` + `os.exit` via `vim.schedule`,
+  -- we need to pump the event loop so the scheduled callback fires.
+  -- Use `vim.wait` to process `vim.schedule` callbacks (unlike `uv.run`).
+  vim.wait(10000)
+end

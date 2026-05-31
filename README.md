@@ -2,7 +2,7 @@
 
 # fzf :heart: lua
 
-![Neovim version](https://img.shields.io/badge/Neovim-0.7-57A143?style=flat-square&logo=neovim)
+![Neovim version](https://img.shields.io/badge/Neovim-0.9-57A143?style=flat-square&logo=neovim)
 
 [Quickstart](#quickstart) • [Installation](#installation) • [Usage](#usage) • [Commands](#commands) • [Customization](#customization) • [Wiki](https://github.com/ibhagwan/fzf-lua/wiki)
 
@@ -45,8 +45,12 @@ Using [lazy.nvim](https://github.com/folke/lazy.nvim)
   -- optional for icon support
   dependencies = { "nvim-tree/nvim-web-devicons" },
   -- or if using mini.icons/mini.nvim
-  -- dependencies = { "echasnovski/mini.icons" },
+  -- dependencies = { "nvim-mini/mini.icons" },
+  ---@module "fzf-lua"
+  ---@type fzf-lua.Config|{}
+  ---@diagnostic disable: missing-fields
   opts = {}
+  ---@diagnostic enable: missing-fields
 }
 ```
 
@@ -55,11 +59,11 @@ Using [lazy.nvim](https://github.com/folke/lazy.nvim)
 
 ### Dependencies
 
-- [`neovim`](https://github.com/neovim/neovim/releases) version > `0.7.0`
-- [`fzf`](https://github.com/junegunn/fzf) version > `0.25`
+- [`neovim`](https://github.com/neovim/neovim/releases) version >= `0.9`
+- [`fzf`](https://github.com/junegunn/fzf) version > `0.36`
   or [`skim`](https://github.com/skim-rs/skim) binary installed
 - [nvim-web-devicons](https://github.com/nvim-tree/nvim-web-devicons)
-  or [mini.icons](https://github.com/echasnovski/mini.icons)
+  or [mini.icons](https://github.com/nvim-mini/mini.icons)
   (optional)
 
 ### Optional dependencies
@@ -70,6 +74,7 @@ Using [lazy.nvim](https://github.com/folke/lazy.nvim)
   using fzf's native previewer
 - [delta](https://github.com/dandavison/delta) - syntax highlighted git pager
   for git status previews
+- [jj](https://github.com/jj-vcs/jj) - for Jujutsu commands (`jj_files`, `vcs_files`)
 - [nvim-dap](https://github.com/mfussenegger/nvim-dap) - for Debug Adapter
   Protocol (DAP) support
 - [nvim-treesitter-context](https://github.com/nvim-treesitter/nvim-treesitter-context) - for
@@ -86,6 +91,11 @@ to configure in `previewer.builtin.extensions`):
 - [viu](https://github.com/atanunq/viu) - terminal image previewer
 - [ueberzugpp](https://github.com/jstkdng/ueberzugpp) - terminal image previewer using X11/Wayland
   child windows, sixels, kitty and iterm2
+
+> [!TIP]
+> If your terminal supports the kitty graphics protocol (e.g. kitty, ghostty, etc) install
+> @folke's [snacks.nvim](https://github.com/folke/snacks.nvim) to render images using the
+> `snacks.image` module, it will be auto-detected by fzf-lua and requires no configuration.
 
 ### Windows Notes
 
@@ -110,15 +120,17 @@ Fzf-lua aims to be as plug and play as possible with sane defaults, you can
 run any fzf-lua command like this:
 
 ```lua
-:lua require('fzf-lua').files()
--- or using the `FzfLua` vim command:
+:lua require("fzf-lua").files()
+-- once loaded we can use the global object
+:lua FzfLua.files()
+-- or the vim command:
 :FzfLua files
 ```
 
 or with arguments:
 
 ```lua
-:lua require('fzf-lua').files({ cwd = '~/.config' })
+:lua FzfLua.files({ cwd = '~/.config' })
 -- or using the `FzfLua` vim command:
 :FzfLua files cwd=~/.config
 ```
@@ -128,7 +140,7 @@ or with arguments:
 Resuming work from where you left off is as easy as:
 
 ```lua
-:lua require('fzf-lua').resume()
+:lua FzfLua.resume()
 -- or
 :FzfLua resume
 ```
@@ -136,26 +148,45 @@ Resuming work from where you left off is as easy as:
 Alternatively, resuming work on a specific picker:
 
 ```lua
-:lua require('fzf-lua').files({ resume = true })
+:lua FzfLua.files({ resume = true })
 -- or
 :FzfLua files resume=true
 ```
 
-> [!TIP]
-> By default pressing esc or ctrl-c terminates the fzf process,
-> as such resume is not perfect and is limited to resuming the
-> picker/query and sometimes additional parameters such as regex
-> in grep, etc, for a more complete resume use the "hide" profile,
-> this will modify the esc bind to hide fzf-lua and keep the fzf
-> process running in the background allowing `:FzfLua resume` to
-> restore the picker state entirely, including cursor position
-> and selection. To configure hiding by default:
-> ```lua
-> require("fzf-lua").setup({
->   "hide",
->   -- your other settings here 
-> })
-> ```
+
+### Combining Pickers
+
+Fzf-Lua can combine any of the available pickers into a single display
+using the `combine` method, for example file history (oldfiles) and
+git-files:
+```lua
+:lua FzfLua.combine({ pickers = "oldfiles;git_files" })
+-- or using the `FzfLua` vim command:
+:FzfLua combine pickers=oldfiles;git_files
+```
+
+> [!NOTE]
+> The first picker options determine the options used by the combined
+> picker, that includes formatters, previewer, path_shorten, etc.
+> To avoid errors combine only pickers of the same entry types (i.e files)
+
+### Global Picker
+
+Fzf-Lua conveniently comes with a VS-Code like picker by default
+(customizable) combining files, buffers and LSP symbols:
+
+|Prefix     |Behavior                           |
+|-----------|-----------------------------------|
+|`no prefix`|Files                              |
+|`$`        |Buffers                            |
+|`@`        |LSP Symbols (current buffer)       |
+|`#`        |LSP Symbols (workspace/project)    |
+
+```lua
+:lua FzfLua.global()
+-- or using the `FzfLua` vim command:
+:FzfLua global
+```
 
 **LIST OF AVAILABLE COMMANDS BELOW** 👇
 
@@ -171,6 +202,7 @@ Alternatively, resuming work on a specific picker:
 | `buffers`        | open buffers                      |
 | `files`          | `find` or `fd` on a path          |
 | `oldfiles`       | opened files history              |
+| `history`        | opened buffers/files history      |
 | `quickfix`       | quickfix list                     |
 | `quickfix_stack` | quickfix stack                    |
 | `loclist`        | location list                     |
@@ -180,6 +212,7 @@ Alternatively, resuming work on a specific picker:
 | `treesitter`     | current buffer treesitter symbols |
 | `tabs`           | open tabs                         |
 | `args`           | argument list                     |
+| `vcs_files`      | `jj`/`git` files or `find`/`fd`   |
 
 </details>
 <details>
@@ -228,16 +261,30 @@ Alternatively, resuming work on a specific picker:
 
 ### Git
 
-| Command        | List                     |
-| -------------- | ------------------------ |
-| `git_files`    | `git ls-files`           |
-| `git_status`   | `git status`             |
-| `git_commits`  | git commit log (project) |
-| `git_bcommits` | git commit log (buffer)  |
-| `git_blame`    | git blame (buffer)       |
-| `git_branches` | git branches             |
-| `git_tags`     | git tags                 |
-| `git_stash`    | git stash                |
+| Command         | List                     |
+| --------------- | ------------------------ |
+| `git_files`     | `git ls-files`           |
+| `git_status`    | `git status`             |
+| `git_diff`      | `git diff {ref}`         |
+| `git_hunks`     | `git hunks {ref}`        |
+| `git_reflog`    | `git reflog`             |
+| `git_commits`   | git commit log (project) |
+| `git_bcommits`  | git commit log (buffer)  |
+| `git_blame`     | git blame (buffer)       |
+| `git_branches`  | git branches             |
+| `git_worktrees` | git worktrees            |
+| `git_tags`      | git tags                 |
+| `git_stash`     | git stash                |
+
+</details>
+<details>
+<summary>Jujutsu</summary>
+
+### Jujutsu
+
+| Command    | List                   |
+| ---------- | ---------------------- |
+| `jj_files` | `jj file list` tracked files |
 
 </details>
 <details>
@@ -257,6 +304,8 @@ Alternatively, resuming work on a specific picker:
 | `lsp_live_workspace_symbols` | Workspace Symbols (live query)   |
 | `lsp_incoming_calls`         | Incoming Calls                   |
 | `lsp_outgoing_calls`         | Outgoing Calls                   |
+| `lsp_type_sub`               | Sub Types                        |
+| `lsp_type_super`             | Super Types                     |
 | `lsp_code_actions`           | Code Actions                     |
 | `lsp_finder`                 | All LSP locations, combined view |
 | `diagnostics_document`       | Document Diagnostics             |
@@ -270,31 +319,35 @@ Alternatively, resuming work on a specific picker:
 
 ### Misc
 
-| Command                | List                           |
-| ---------------------- | ------------------------------ |
-| `resume`               | resume last command/query      |
-| `builtin`              | fzf-lua builtin commands       |
-| `profiles`             | fzf-lua configuration profiles |
-| `helptags`             | help tags                      |
-| `manpages`             | man pages                      |
-| `colorschemes`         | color schemes                  |
-| `awesome_colorschemes` | Awesome Neovim color schemes   |
-| `highlights`           | highlight groups               |
-| `commands`             | neovim commands                |
-| `command_history`      | command history                |
-| `search_history`       | search history                 |
-| `marks`                | :marks                         |
-| `jumps`                | :jumps                         |
-| `changes`              | :changes                       |
-| `registers`            | :registers                     |
-| `tagstack`             | :tags                          |
-| `autocmds`             | :autocmd                       |
-| `nvim_options`         | neovim options                 |
-| `keymaps`              | key mappings                   |
-| `filetypes`            | filetypes                      |
-| `menus`                | menus                          |
-| `spell_suggest`        | spelling suggestions           |
-| `packadd`              | :packadd <package>             |
+| Command                | List                                          |
+| ---------------------- | --------------------------------------------- |
+| `resume`               | resume last command/query                     |
+| `builtin`              | fzf-lua builtin commands                      |
+| `combine`              | combine different fzf-lua pickers             |
+| `global`               | global picker for files,buffers and symbols   |
+| `profiles`             | fzf-lua configuration profiles                |
+| `helptags`             | help tags                                     |
+| `manpages`             | man pages                                     |
+| `colorschemes`         | color schemes                                 |
+| `awesome_colorschemes` | Awesome Neovim color schemes                  |
+| `highlights`           | highlight groups                              |
+| `commands`             | neovim commands                               |
+| `command_history`      | command history                               |
+| `search_history`       | search history                                |
+| `marks`                | :marks                                        |
+| `jumps`                | :jumps                                        |
+| `changes`              | :changes                                      |
+| `registers`            | :registers                                    |
+| `tagstack`             | :tags                                         |
+| `autocmds`             | :autocmd                                      |
+| `nvim_options`         | neovim options                                |
+| `keymaps`              | key mappings                                  |
+| `filetypes`            | filetypes                                     |
+| `menus`                | menus                                         |
+| `spellcheck`           | misspelled words in buffer                    |
+| `spell_suggest`        | spelling suggestions                          |
+| `packadd`              | :packadd <package>                            |
+| `undotree`             | history undo tree                             |
 
 </details>
 <details>
@@ -367,9 +420,11 @@ Alternatively, resuming work on a specific picker:
 > to see detailed usage notes and a comprehensive list of yet more(!) available options.
 
 ```lua
-require("fzf-lua").setup{
+require("fzf-lua").setup {
   -- MISC GLOBAL SETUP OPTIONS, SEE BELOW
   -- fzf_bin = ...,
+  -- each of these options can also be passed as function that return options table
+  -- e.g. winopts = function() return { ... } end
   winopts = { ...  },     -- UI Options
   keymap = { ...  },      -- Neovim keymaps / fzf binds
   actions = { ...  },     -- Fzf "accept" binds
@@ -499,8 +554,9 @@ keymap = {
       ["<F3>"]        = "toggle-preview-wrap",
       ["<F4>"]        = "toggle-preview",
       -- Rotate preview clockwise/counter-clockwise
-      ["<F5>"]        = "toggle-preview-ccw",
-      ["<F6>"]        = "toggle-preview-cw",
+      ["<F5>"]        = "toggle-preview-cw",
+      -- Preview toggle behavior default/extend
+      ["<F6>"]        = "toggle-preview-behavior",
       -- `ts-ctx` binds require `nvim-treesitter-context`
       ["<F7>"]        = "toggle-preview-ts-ctx",
       ["<F8>"]        = "preview-ts-ctx-dec",
@@ -538,7 +594,6 @@ keymap = {
 <summary>actions</summary>
 
 ```lua
-local actions = require("fzf-lua").actions
 actions = {
     -- Below are the default actions, setting any value in these tables will override
     -- the defaults, to inherit from the defaults change [1] from `false` to `true`
@@ -550,15 +605,15 @@ actions = {
       -- `file_edit_or_qf` opens a single selection or sends multiple selection to quickfix
       -- replace `enter` with `file_edit` to open all files/bufs whether single or multiple
       -- replace `enter` with `file_switch_or_edit` to attempt a switch in current tab first
-      ["enter"]       = actions.file_edit_or_qf,
-      ["ctrl-s"]      = actions.file_split,
-      ["ctrl-v"]      = actions.file_vsplit,
-      ["ctrl-t"]      = actions.file_tabedit,
-      ["alt-q"]       = actions.file_sel_to_qf,
-      ["alt-Q"]       = actions.file_sel_to_ll,
-      ["alt-i"]       = actions.toggle_ignore,
-      ["alt-h"]       = actions.toggle_hidden,
-      ["alt-f"]       = actions.toggle_follow,
+      ["enter"]       = FzfLua.actions.file_edit_or_qf,
+      ["ctrl-s"]      = FzfLua.actions.file_split,
+      ["ctrl-v"]      = FzfLua.actions.file_vsplit,
+      ["ctrl-t"]      = FzfLua.actions.file_tabedit,
+      ["alt-q"]       = FzfLua.actions.file_sel_to_qf,
+      ["alt-Q"]       = FzfLua.actions.file_sel_to_ll,
+      ["alt-i"]       = FzfLua.actions.toggle_ignore,
+      ["alt-h"]       = FzfLua.actions.toggle_hidden,
+      ["alt-f"]       = FzfLua.actions.toggle_follow,
     },
   }
 ```
@@ -713,7 +768,7 @@ previewers = {
       -- from being modified when toggling the preview.
       toggle_behavior = "default",
       -- Title transform function, by default only displays the tail
-      -- title_fnamemodify = function(s) vim.fn.fnamemodify(s, ":t") end,
+      -- title_fnamemodify = function(s) return vim.fn.fnamemodify(s, ":t") end,
       -- preview extensions using a custom shell command:
       -- for example, use `viu` for image previews
       -- will do nothing if `viu` isn't executable
@@ -731,11 +786,10 @@ previewers = {
       --   "contain", "forced_cover", "cover"
       -- https://github.com/seebye/ueberzug
       ueberzug_scaler = "cover",
-      -- Custom filetype autocmds aren't triggered on
-      -- the preview buffer, define them here instead
-      -- ext_ft_override = { ["ksql"] = "sql", ... },
       -- render_markdown.nvim integration, enabled by default for markdown
       render_markdown = { enabled = true, filetypes = { ["markdown"] = true } },
+      -- snacks.images integration, enabled by default
+      snacks_image = { enabled = true, render_inline = true },
     },
     -- Code Action previewers, default is "codeaction" (set via `lsp.code_actions.previewer`)
     -- "codeaction_native" uses fzf's native previewer, recommended when combined with git-delta
@@ -782,9 +836,9 @@ previewers = {
     -- otherwise auto-detect prioritizes `fd`:`rg`:`find`
     -- default options are controlled by 'fd|rg|find|_opts'
     -- cmd            = "rg --files",
-    find_opts         = [[-type f \! -path '*/.git/*']],
-    rg_opts           = [[--color=never --hidden --files -g "!.git"]],
-    fd_opts           = [[--color=never --hidden --type f --type l --exclude .git]],
+    find_opts         = [[-type f \! -path '*/.git/*' \! -path '*/.jj/*']],
+    rg_opts           = [[--color=never --files -g "!.git" -g "!.jj"]],
+    fd_opts           = [[--color=never --type f --type l --exclude .git --exclude .jj]],
     dir_opts          = [[/s/b/a:-d]],
     -- by default, cwd appears in the header only if {opts} contain a cwd
     -- parameter to a different folder than the current working directory
@@ -800,6 +854,7 @@ previewers = {
     hidden             = true,          -- enable hidden files by default
     follow             = false,         -- do not follow symlinks by default
     no_ignore          = false,         -- respect ".gitignore"  by default
+    absolute_path      = false,         -- display absolute paths
     actions = {
       -- inherits from 'actions.files', here we can override
       -- or set bind to 'false' to disable a default action
@@ -844,6 +899,27 @@ previewers = {
       --   ["ctrl-x"]  = { fn = actions.git_reset, reload = true },
       --   ["ctrl-s"]  = { fn = actions.git_stage_unstage, reload = true },
       -- },
+    },
+    diff = {
+      cmd               = "git --no-pager diff --name-only {ref}",
+      ref               = "HEAD",
+      preview           = "git diff {ref} {file}",
+      -- git-delta is automatically detected as pager, uncomment to disable
+      -- preview_pager = false,
+      file_icons        = true,
+      color_icons       = true,
+      fzf_opts          = { ["--multi"] = true },
+    },
+    hunks = {
+      cmd               = "git --no-pager diff --color=always {ref}",
+      ref               = "HEAD",
+      file_icons        = true,
+      color_icons       = true,
+      fzf_opts          = {
+      ["--multi"] = true,
+      ["--delimiter"] = ":",
+      ["--nth"] = "3..",
+      },
     },
     commits = {
       prompt        = 'Commits❯ ',
@@ -988,8 +1064,6 @@ previewers = {
       -- uncomment to enable '.gitignore' toggle for grep
       -- ["ctrl-r"]   = { actions.toggle_ignore }
     },
-    no_header             = false,    -- hide grep|cwd header?
-    no_header_i           = false,    -- hide interactive header?
   },
   args = {
     prompt            = 'Args❯ ',
@@ -1002,9 +1076,10 @@ previewers = {
     cwd_only          = false,
     stat_file         = true,         -- verify files exist on disk
     -- can also be a lua function, for example:
-    -- stat_file = require("fzf-lua").utils.file_is_readable,
+    -- stat_file = FzfLua.utils.file_is_readable,
     -- stat_file = function() return true end,
     include_current_session = false,  -- include bufs from current session
+    ignore_current_buffer   = true,   -- exclude current buf from session
   },
   buffers = {
     prompt            = 'Buffers❯ ',
@@ -1027,6 +1102,7 @@ previewers = {
     prompt            = 'Tabs❯ ',
     tab_title         = "Tab",
     tab_marker        = "<<",
+    locate            = true,         -- position cursor at current window
     file_icons        = true,         -- show file icons (true|"devicons"|"mini")?
     color_icons       = true,         -- colorize file|git icons
     actions = {
@@ -1076,8 +1152,6 @@ previewers = {
       -- this action toggles between 'grep' and 'live_grep'
       ["ctrl-g"]          = { actions.grep_lgrep }
     },
-    no_header             = false,    -- hide grep|cwd header?
-    no_header_i           = false,    -- hide interactive header?
   },
   btags = {
     prompt                = 'BTags❯ ',
@@ -1143,7 +1217,7 @@ previewers = {
   },
   quickfix = {
     file_icons        = true,
-    only_valid        = false, -- select among only the valid quickfix entries
+    valid_only        = false, -- select among only the valid quickfix entries
   },
   quickfix_stack = {
     prompt = "Quickfix Stack> ",
@@ -1165,6 +1239,7 @@ previewers = {
     symbols = {
         -- lsp_query      = "foo"       -- query passed to the LSP directly
         -- query          = "bar"       -- query passed to fzf prompt for fuzzy matching
+        locate            = false,      -- attempt to position cursor at current symbol
         async_or_timeout  = true,       -- symbols are async by default
         symbol_style      = 1,          -- style for document/workspace symbols
                                         -- false: disable,    1: icon+kind
@@ -1209,6 +1284,8 @@ previewers = {
         symbol_fmt        = function(s, opts) return "[" .. s .. "]" end,
         -- prefix child symbols. set to any string or `false` to disable
         child_prefix      = true,
+        -- prepend parent to symbol, set to any string or `false` to disable
+        -- parent_postfix    = ".",
         fzf_opts          = { ["--tiebreak"] = "begin" },
     },
     code_actions = {
@@ -1230,25 +1307,29 @@ previewers = {
         -- by default display all LSP locations
         -- to customize, duplicate table and delete unwanted providers
         providers   = {
-            { "references",      prefix = require("fzf-lua").utils.ansi_codes.blue("ref ") },
-            { "definitions",     prefix = require("fzf-lua").utils.ansi_codes.green("def ") },
-            { "declarations",    prefix = require("fzf-lua").utils.ansi_codes.magenta("decl") },
-            { "typedefs",        prefix = require("fzf-lua").utils.ansi_codes.red("tdef") },
-            { "implementations", prefix = require("fzf-lua").utils.ansi_codes.green("impl") },
-            { "incoming_calls",  prefix = require("fzf-lua").utils.ansi_codes.cyan("in  ") },
-            { "outgoing_calls",  prefix = require("fzf-lua").utils.ansi_codes.yellow("out ") },
+            { "references",      prefix = FzfLua.utils.ansi_codes.blue("ref ") },
+            { "definitions",     prefix = FzfLua.utils.ansi_codes.green("def ") },
+            { "declarations",    prefix = FzfLua.utils.ansi_codes.magenta("decl") },
+            { "typedefs",        prefix = FzfLua.utils.ansi_codes.red("tdef") },
+            { "implementations", prefix = FzfLua.utils.ansi_codes.green("impl") },
+            { "incoming_calls",  prefix = FzfLua.utils.ansi_codes.cyan("in  ") },
+            { "outgoing_calls",  prefix = FzfLua.utils.ansi_codes.yellow("out ") },
+            { "type_sub",        prefix = FzfLua.utils.utils.ansi_codes.cyan("sub ") },
+            { "type_super",      prefix = FzfLua.utils.utils.ansi_codes.yellow("supr") },
         },
     }
   },
   diagnostics ={
     prompt            = 'Diagnostics❯ ',
     cwd_only          = false,
-    file_icons        = true,
+    file_icons        = false,
     git_icons         = false,
-    diag_icons        = true,
+    color_headings    = true,   -- use diag highlights to color source & filepath
+    diag_icons        = true,   -- display icons from diag sign definitions
     diag_source       = true,   -- display diag source (e.g. [pycodestyle])
+    diag_code         = true,   -- display diag code (e.g. [undefined])
     icon_padding      = '',     -- add padding for wide diagnostics signs
-    multiline         = true,   -- concatenate multi-line diags into a single line
+    multiline         = 2,      -- split heading and diag to separate lines
     -- severity_only:   keep any matching exact severity
     -- severity_limit:  keep any equal or more severe (lower)
     -- severity_bound:  keep any equal or less severe (higher)
@@ -1276,7 +1357,8 @@ previewers = {
   },
   zoxide = {
     cmd          = "zoxide query --list --score",
-    git_root     = false, -- auto-detect git root
+    scope        = "global", -- cd action scope "local|win|tab"
+    git_root     = false,    -- auto-detect git root
     formatter    = "path.dirname_first",
     fzf_opts     = {
       ["--no-multi"]  = true,
@@ -1310,7 +1392,7 @@ previewers = {
 Different `fzf` layout:
 
 ```lua
-:lua require('fzf-lua').files({ fzf_opts = {['--layout'] = 'reverse-list'} })
+:lua FzfLua.files({ fzf_opts = {['--layout'] = 'reverse-list'} })
 -- Or via the vimL command
 :FzfLua files fzf_opts.--layout=reverse-list
 ```
@@ -1318,7 +1400,7 @@ Different `fzf` layout:
 Using `files` with a different command and working directory:
 
 ```lua
-:lua require'fzf-lua'.files({ prompt="LS> ", cmd = "ls", cwd="~/.config" })
+:lua FzfLua.files({ prompt="LS> ", cmd = "ls", cwd="~/.config" })
 -- Or via the vimL command
 :FzfLua files prompt="LS>\ " cmd=ls cwd=~/.config
 ```
@@ -1326,13 +1408,13 @@ Using `files` with a different command and working directory:
 Using `live_grep` with `git grep`:
 
 ```lua
-:lua require'fzf-lua'.live_grep({ cmd = "git grep --line-number --column --color=always" })
+:lua FzfLua.live_grep({ cmd = "git grep --line-number --column --color=always" })
 ```
 
 `spell_suggest` with non-default window size relative to cursor:
 
 ```lua
-:lua require'fzf-lua'.spell_suggest({ winopts = { height=0.33, width=0.33, relative="cursor" } })
+:lua FzfLua.spell_suggest({ winopts = { height=0.33, width=0.33, relative="cursor" } })
 -- Or via the vimL command
 :FzfLua spell_suggest winopts={height=0.33,width=0.33,relative=cursor}
 :FzfLua spell_suggest winopts={height=0.33,width=0.33} winopts.relative=cursor
@@ -1371,6 +1453,20 @@ the first argument:
 ```lua
 :lua require"fzf-lua".setup({{"telescope","fzf-native"},winopts={fullscreen=true}})
 ```
+
+> [!TIP]
+> The default profile is a combination of border-fused+hide profiles,
+> without the "hide" profile pressing esc terminates the fzf process
+> which makes for an imperfect resume limited to resuming only the
+> picker/query (without cursor position, selection, etc), to restore
+> the default esc behavior combine any existing profile with "hide"
+> by using a table in `opts[1]`:
+> ```lua
+> require("fzf-lua").setup({
+>   { "fzf-native", "hide" },
+>   -- your other settings here
+> })
+> ```
 
 #### Coming from fzf.vim?
 
@@ -1422,7 +1518,7 @@ well as custom completion, for example, set path/completion using `<C-x><C-f>`:
 
 ```lua
 vim.keymap.set({ "n", "v", "i" }, "<C-x><C-f>",
-  function() require("fzf-lua").complete_path() end,
+  function() FzfLua.complete_path() end,
   { silent = true, desc = "Fuzzy complete path" })
 ```
 
@@ -1434,7 +1530,7 @@ Or with a custom command and preview:
 ```lua
 vim.keymap.set({ "i" }, "<C-x><C-f>",
   function()
-    require("fzf-lua").complete_file({
+    FzfLua.complete_file({
       cmd = "rg --files",
       winopts = { preview = { hidden = true } }
     })
@@ -1453,14 +1549,14 @@ Every fzf-lua function can be easily converted to a completion function by sendi
 > `p` to paste the selected entry.
 
 ```lua
-require("fzf-lua").fzf_exec({"foo", "bar"}, {complete = true})
+FzfLua.fzf_exec({"foo", "bar"}, {complete = true})
 ```
 
 Custom completion is possible using a custom completion callback, the example below
 will replace the text from the current cursor column with the selected entry:
 
 ```lua
-require("fzf-lua").fzf_exec({"foo", "bar"}, {
+FzfLua.fzf_exec({"foo", "bar"}, {
   -- @param selected: the selected entry or entries
   -- @param opts: fzf-lua caller/provider options
   -- @param line: originating buffer completed line
@@ -1496,7 +1592,7 @@ require('fzf-lua').setup {
 
 or temporarily in the call:
 ```lua
-:lua require'fzf-lua'.files({ hls={preview_title="IncSearch"} })
+:lua FzfLua.files({ hls={preview_title="IncSearch"} })
 -- vimL equivalent
 :FzfLua files hls.preview_title=IncSearch
 ```
@@ -1546,6 +1642,9 @@ temporarily overridden by its corresponding `winopts` option:
 | FzfLuaFilePart          | @none            | `hls.file_part`      | Path formatters file hl group         |
 | FzfLuaLivePrompt        | \*PaleVioletRed1 | `hls.live_prompt`    | "live" queries prompt text            |
 | FzfLuaLiveSym           | \*PaleVioletRed1 | `hls.live_sym`       | LSP live symbols query match          |
+| FzfLuaCmdEx             | Statement        | `hls.cmd_ex`         | Ex commands in `commands`             |
+| FzfLuaCmdBuf            | Added            | `hls.cmd_buf`        | Buffer commands in `commands`         |
+| FzfLuaCmdGlobal         | Directory        | `hls.cmd_global`     | Global commands in `commands`         |
 | FzfLuaFzfNormal         | FzfLuaNormal     | `fzf.normal`         | fzf's `fg\|bg`                        |
 | FzfLuaFzfCursorLine     | FzfLuaCursorLine | `fzf.cursorline`     | fzf's `fg+\|bg+`                      |
 | FzfLuaFzfMatch          | Special          | `fzf.match`          | fzf's `hl+`                           |
@@ -1578,7 +1677,7 @@ your current Neovim colorscheme:
 ```lua
 require("fzf-lua").setup({ fzf_colors = true })
 -- Or in the direct call options
-:lua require("fzf-lua").files({ fzf_colors = true })
+:lua FzfLua.files({ fzf_colors = true })
 :FzfLua files fzf_colors=true
 ```
 

@@ -8,8 +8,8 @@ local error = vim.health.error or vim.health.report_error
 local uv = vim.uv or vim.loop
 
 function M.check()
-  local is_win = jit.os:find("Windows")
   local utils = require("fzf-lua.utils")
+  local is_win = utils.__IS_WINDOWS
 
   local function have(tool, nowarn)
     if vim.fn.executable(tool) == 0 then
@@ -17,9 +17,15 @@ function M.check()
         warn("'" .. tool .. "' not found")
       end
     else
-      local version = vim.fn.system(tool .. " --version") or ""
-      version = vim.trim(vim.split(version, "\n")[1])
-      ok("'" .. tool .. "' `" .. version .. "`")
+      -- Windows built-in tools don't support --version and output non-UTF-8 error messages
+      if is_win and (tool == "find" or tool == "dir") then
+        ok("'" .. tool .. "' (Windows built-in)")
+        return true
+      end
+      local out, rc = utils.io_system({ tool, "--version" })
+      local version = vim.trim(vim.split(out, "\n")[1] or "")
+      local is_ok = rc == 0
+      (is_ok and ok or error)("'" .. tool .. "' `" .. version .. "`")
       return true
     end
   end
@@ -52,6 +58,7 @@ function M.check()
   end
 
   local run = vim.fn.stdpath("run")
+  ---@cast run -string[]
   if not uv.fs_access(run, "rwx") then
     error(
       "Your 'run' directory is invalid `"
@@ -81,10 +88,12 @@ function M.check()
   end
 
   start("fzf-lua [optional]")
-  if pcall(require, "nvim-web-devicons") then
+  if package.loaded["nvim-web-devicons"] then
     ok("`nvim-web-devicons` found")
+  elseif package.loaded["mini.icons"] then
+    ok("`mini.icons` found")
   else
-    warn("`nvim-web-devicons` not found")
+    warn("`nvim-web-devicons` or `mini.icons` not found")
   end
   for _, tool in ipairs({ "rg", "fd", "fdfind", "bat", "batcat", "delta" }) do
     have(tool, true)
@@ -106,11 +115,12 @@ function M.check()
   if vim.env.FZF_DEFAULT_OPTS_FILE == nil then
     ok("`FZF_DEFAULT_OPTS_FILE` is not set")
   else
-    ok("`FZF_DEFAULT_OPTS_FILE` is set to `" .. vim.env.FZF_DEFAULT_OPTS_FILE .. "`")
+    ok("`$FZF_DEFAULT_OPTS_FILE` is set to `" .. vim.env.FZF_DEFAULT_OPTS_FILE .. "`")
   end
 end
 
 ---@param str string
+---@return string
 function M.format(str)
   str = str:gsub("%s+", " ")
   local options = vim.split(vim.trim(str), " -", { plain = true })

@@ -1,5 +1,8 @@
+---@diagnostic disable-next-line: deprecated
 local uv = vim.uv or vim.loop
 local fzf = require("fzf-lua")
+
+---@type fzf-lua.Config|{}
 return {
   desc     = "hide interface instead of abort",
   keymap   = {
@@ -13,12 +16,16 @@ return {
   },
   defaults = {
     enrich = function(opts)
+      -- Do not hide if resume is disabled (#2425)
+      if opts.no_resume or opts.no_hide then return opts end
       if opts._is_fzf_tmux then
         fzf.utils.warn("'hide' profile cannot work with tmux, ignoring.")
         return opts
       end
       opts.actions = opts.actions or {}
-      if fzf.utils.has(opts, "sk") then
+      assert(opts.keymap)
+      assert(opts.keymap.builtin)
+      if fzf.utils.has(opts, "sk") and not fzf.utils.has(opts, "sk", { 1, 5, 3 }) then
         -- `execute-silent` actions are bugged with skim
         -- Set esc to hide since we aren't using the custom callback
         opts.actions["esc"] = false
@@ -36,13 +43,14 @@ return {
           -- We hide the window first which happens instantly
           -- and then send <Esc> directly to the term channel
           fzf.hide()
-          vim.api.nvim_chan_send(vim.bo[e.bufnr].channel, "\x1b")
+          vim.api.nvim_chan_send(vim.bo[e.bufnr].channel, "\027")
         end, { buffer = e.bufnr, nowait = true })
         -- Call the users' on_create?
         if type(_on_create) == "function" then
           _on_create(e)
         end
       end
+      ---@diagnostic disable: assign-type-mismatch
       opts.actions["esc"] = {
         fn = fzf.actions.dummy_abort,
         desc = "hide",
@@ -50,7 +58,7 @@ return {
         -- `tbl_map` below preventing fzf history append on esc
         -- exec_silent = true,
       }
-      opts.actions = vim.tbl_map(function(act)
+      for k, act in pairs(opts.actions) do
         act = type(act) == "function" and { fn = act } or act
         act = type(act) == "table" and type(act[1]) == "function"
             and { fn = act[1], reuse = true } or act
@@ -60,28 +68,30 @@ return {
             and not act.reload
             and not act.noclose
             and not act.reuse
+            -- ignore `false` actions (#2407)
+            and not k:match("^_")
         then
           local fn = act.fn
           act.exec_silent = true
-          act.desc = act.desc or fzf.config.get_action_helpstr(fn)
+          act.desc = act.desc or fzf.config.get_action_helpstr(act)
           act.fn = function(...)
             fzf.hide()
-            fn(...)
+            if fn then fn(...) end
             -- As the process never terminates fzf history is never written
             -- manually append to the fzf history file if needed
-            local o = select(2, ...)
-            if histfile and type(o.last_query) == "string" and #o.last_query > 0 then
+            local q = FzfLua.get_last_query()
+            if histfile and type(q) == "string" and #q > 0 then
               local fd = uv.fs_open(histfile, "a", -1)
               if fd then
-                uv.fs_write(fd, o.last_query .. "\n", nil, function(_)
+                uv.fs_write(fd, q .. "\n", nil, function(_)
                   uv.fs_close(fd)
                 end)
               end
             end
           end
         end
-        return act
-      end, opts.actions)
+        opts.actions[k] = act
+      end
       return opts
     end,
   },
